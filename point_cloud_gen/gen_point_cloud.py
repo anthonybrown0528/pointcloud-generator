@@ -7,6 +7,7 @@ from cv_bridge import CvBridge
 from pointcloud_interfaces.msg import ImageCamInfo
 
 import numpy as np
+import math
 
 class GenPointCloudNode(Node):
     def __init__(self):
@@ -59,6 +60,7 @@ class GenPointCloudNode(Node):
         self.image_depth = self.bridge.imgmsg_to_cv2(msg.image)
 
         points = self.gen_pointcloud(self.image_depth, self.hfov, self.vfov, msg.near_plane, msg.far_plane)
+        points = self.remove_boundary_values(points, msg.near_plane, msg.far_plane)
 
         self.pointcloud.width = points.shape[0]
         self.row_step = 12 * points.shape[0]
@@ -68,6 +70,16 @@ class GenPointCloudNode(Node):
 
         self.get_logger().info('Publishing pointcloud')
         self.pub.publish(self.pointcloud)
+
+    def remove_boundary_values(self, points, near_plane, far_plane):
+        removing_indices = []
+        for i in range(points.shape[0]):
+            if math.isclose(points[i][2], far_plane, rel_tol=0.01) or math.isclose(points[i][2], near_plane, rel_tol=0.01):
+                removing_indices.append(i)
+
+        points = np.delete(points, removing_indices, axis=0)
+        self.get_logger().info(str(points.shape))
+        return points
 
     def gen_pointcloud(self, image, hfov, vfov, near_plane, far_plane):
         # Used to map pixel of depth image to corresponding uv coordinates
@@ -80,7 +92,8 @@ class GenPointCloudNode(Node):
             v[i][0] = i / (v.shape[0] - 1)
 
         # Scale image to size in meters
-        image = image * (far_plane - near_plane) + near_plane
+        #image = image * (far_plane - near_plane) + near_plane
+        image = near_plane / (image * near_plane / far_plane - image + 1)
 
         x = image * (1.0 - 2.0 * u) * np.tan(hfov*np.pi/180)   # x-coordinate
         y = image * (1.0 - 2.0 * v) * np.tan(vfov*np.pi/180)   # y-coordinate
