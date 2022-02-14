@@ -79,16 +79,21 @@ class GenPointCloudNode(Node):
         for i in range(v.shape[0]):
             v[i][0] = i / (v.shape[0] - 1)
 
-        # TODO: Scale image to size in meters
+        # Scale image to size in meters
         image = image * (far_plane - near_plane) + near_plane
 
         x = image * (1.0 - 2.0 * u) * np.tan(hfov*np.pi/180)   # x-coordinate
         y = image * (1.0 - 2.0 * v) * np.tan(vfov*np.pi/180)   # y-coordinate
         z = image                                              # z-coordinate
 
+        # Flatten coordinates into columns
+        x = np.reshape(x, (x.shape[0] * x.shape[1], 1))
+        y = np.reshape(y, (y.shape[0] * y.shape[1], 1))
+        z = np.reshape(z, (z.shape[0] * z.shape[1], 1))
+
         # Combines XYZ coordinates and returns with datatype FLOAT32
-        xyz_map = np.hstack((np.reshape(x, (x.shape[0] * x.shape[1], 1)), np.reshape(y, (y.shape[0] * y.shape[1], 1)), np.reshape(z, (z.shape[0] * z.shape[1], 1))))
-        return xyz_map.astype(np.float32)
+        xyz = np.hstack((x, y, z))
+        return xyz.astype(np.float32)
 
 
 def main():
