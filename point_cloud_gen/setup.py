@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'gen_point_cloud = point_cloud_gen.gen_point_cloud:main'
+            'gen_point_cloud = point_cloud_gen.gen_point_cloud:main',
+            'read_point_cloud = point_cloud_gen.read_point_cloud:main'
         ],
     },
 )
