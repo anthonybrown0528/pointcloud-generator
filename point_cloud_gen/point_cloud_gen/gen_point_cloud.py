@@ -3,8 +3,9 @@ from rclpy.node import Node
 
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs.msg import PointField
+from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-from pointcloud_interfaces.msg import ImageCamInfo
+from pointcloud_interfaces.srv import CameraParams
 
 import numpy as np
 import math
@@ -53,22 +54,30 @@ class GenPointCloudNode(Node):
         # Used to converts ROS2 Image msg to numpy array
         self.bridge = CvBridge()
 
-        # Subscribes to topic to retrieve depth image and hfov/vfov
-        self.sub = self.create_subscription(ImageCamInfo, 'image_cam_info', self.sub_callback, 5)
-
         # Publishes generated pointcloud
         self.pub = self.create_publisher(PointCloud2, 'point_cloud', 10)
 
+        # Client that requests for FOV, near plane, and far plane of simulated camera
+        self.cli = self.create_client(CameraParams, 'camera/params')
+        while not self.cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('service not available, waiting again...')
+
+        self.req = CameraParams.Request()
+
+    def get_camera_params(self):
+        self.future = self.cli.call_async(self.req)
+
+    def update_camera_params(self, hfov, vfov, near, far):
+        self.hfov = hfov
+        self.vfov = vfov
+
+        self.near_plane = near
+        self.far_plane = far
+
     def sub_callback(self, msg):
-        self.hfov = msg.hfov
-        self.vfov = msg.vfov
-
-        self.near_plane = msg.near_plane
-        self.far_plane = msg.far_plane
-
         # Converts ROS2 Image msg to numpy array
-        self.image_depth = self.bridge.imgmsg_to_cv2(msg.image)
-        if msg.image.encoding == '8UC1':
+        self.image_depth = self.bridge.imgmsg_to_cv2(msg)
+        if msg.encoding == '8UC1':
             self.image_depth = self.image_depth.astype(np.float32) / 255.0
             self.image_depth = self.image_depth.astype(np.float32)
 
@@ -77,6 +86,7 @@ class GenPointCloudNode(Node):
         self.image_depth = self.near_plane / (self.image_depth * self.near_plane / self.far_plane - self.image_depth + 1)
 
         self.points = self.gen_pointcloud()
+
         self.remove_boundary_values()
 
         self.pointcloud.width = self.points.shape[0]
@@ -123,6 +133,24 @@ class GenPointCloudNode(Node):
 def main():
     rclpy.init()
     node = GenPointCloudNode()
+
+    node.get_camera_params()
+    while rclpy.ok():
+        rclpy.spin_once(node)
+        if node.future.done():
+            try:
+                response = node.future.result()
+            except Exception as e:
+                node.get_logger().info(
+                    'Service call failed %r' % (e,))
+            else:
+                node.update_camera_params(response.hfov, response.vfov, response.near, response.far)
+
+                node.get_logger().info('Starting callback...')
+                node.create_subscription(Image, 'image', node.sub_callback, 5)
+                break
+        else:
+            node.get_logger().info('Still waiting...')
 
     rclpy.spin(node)
 

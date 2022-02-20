@@ -46,7 +46,17 @@ ament_target_dependencies(
   "cv_bridge"
 )
 
-install(TARGETS gen_pointcloud read_depth_image
+add_executable(test_pointcloud src/test_pointcloud.cpp)
+target_include_directories(test_pointcloud PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+ament_target_dependencies(
+  test_pointcloud
+  "rclcpp"
+  "sensor_msgs"
+)
+
+install(TARGETS gen_pointcloud read_depth_image test_pointcloud
   DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
