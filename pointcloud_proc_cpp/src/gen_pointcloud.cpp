@@ -18,35 +18,43 @@ using namespace std::chrono_literals;
 class GenPointCloudNode : public rclcpp::Node {
   public:
     GenPointCloudNode(float hfov, float vfov, float near, float far) : Node("gen_pointcloud"), AXIS_COUNT(3) {
-      subscriber = this->create_subscription<sensor_msgs::msg::Image>("camera/depth/image_raw", 2, std::bind(&GenPointCloudNode::subscriber_callback, this, std::placeholders::_1));
-      publisher = this->create_publisher<sensor_msgs::msg::PointCloud2>("pointcloud", 10);
+      subscriber = this->create_subscription<sensor_msgs::msg::Image>("image", 2, std::bind(&GenPointCloudNode::subscriber_callback, this, std::placeholders::_1));
+      publisher = this->create_publisher<sensor_msgs::msg::PointCloud2>("pointcloud", 2);
 
-      imageWidth = 320;
-      imageHeight = 320;
-
+      //Clipping planes of simulated camera
       nearPlane = near;
       farPlane = far;
 
+      //FOV of simulated camera
       hFov = hfov * toRadians;
       vFov = vfov * toRadians;
 
-      u = std::vector<float>(imageWidth);
-      v = std::vector<float>(imageHeight);
+      pointcloudMsg.is_bigendian = false;
+      pointcloudMsg.is_dense = false;
 
-      flatData = std::vector<float>(imageWidth * imageHeight * AXIS_COUNT);
+      sensor_msgs::msg::PointField newField;
+      newField.count = 1;
+      newField.datatype = newField.FLOAT32;
 
-      for(unsigned int i = 0; i < u.size(); i++) {
-        u[i] = i / (float)(this->imageWidth - 1);
-        u[i] = 0.5 - u[i];
-        u[i] *= -1;
-      }
+      //Structure of x-coordinate data
+      newField.name = "x";
+      newField.offset = 0;
 
-      for(unsigned int i = 0; i < v.size(); i++) {
-        v[i] = i / (float)(this->imageHeight - 1);
-        v[i] = 0.5 - v[i];
-        v[i] *= -1;
-      }
+      pointcloudMsg.fields.push_back(newField);
 
+      //Structure of x-coordinate data
+      newField.name = "y";
+      newField.offset = newField.offset + sizeof(float);
+
+      pointcloudMsg.fields.push_back(newField);
+
+      //Structure of x-coordinate data
+      newField.name = "z";
+      newField.offset = newField.offset + sizeof(float);
+
+      pointcloudMsg.fields.push_back(newField);
+
+      pointcloudMsg.point_step = pointcloudMsg.fields.size() * sizeof(float);
     }
 
   private:
@@ -54,57 +62,41 @@ class GenPointCloudNode : public rclcpp::Node {
       this->imageWidth = msg->width;
       this->imageHeight = msg->height;
 
-      const cv_bridge::CvImagePtr image_ptr = cv_bridge::toCvCopy(msg);
-
-      std::vector<std::vector<std::vector<float>>> points = gen_pointcloud(image_ptr);
-
-      for(unsigned int i = 0; i < this->imageHeight; i++) {
-        for(unsigned int j = 0; j < this->imageWidth; j++) {
-          for(unsigned int k = 0; k < this->AXIS_COUNT; k++) {
-            this->flatData[i * this->imageWidth * AXIS_COUNT + j * AXIS_COUNT + k] = points[i][j][k];
-          }
-        }
-      }
-
-      uint8_t* data = reinterpret_cast<uint8_t*>(&(flatData[0]));
-      std::vector<uint8_t> dataVector(this->flatData.size() * sizeof(float));
-      for(unsigned int i = 0; i < dataVector.size(); i++) {
-        dataVector[i] = data[i];
-      }
-
       pointcloudMsg.header.frame_id = msg->header.frame_id;
       pointcloudMsg.header.stamp = this->get_clock()->now();
-
-      std::vector<sensor_msgs::msg::PointField> fields;
-      sensor_msgs::msg::PointField newField;
-
-      newField.name = "x";
-      newField.offset = 0;
-      newField.count = 1;
-      newField.datatype = newField.FLOAT32;
-
-      fields.push_back(newField);
-
-      newField.name = "y";
-      newField.offset = newField.offset + sizeof(float);
-
-      fields.push_back(newField);
-
-      newField.name = "z";
-      newField.offset = newField.offset + sizeof(float);
-
-      fields.push_back(newField);
-
-      pointcloudMsg.fields = fields;
 
       pointcloudMsg.height = 1;
       pointcloudMsg.width = imageWidth * imageHeight;
 
-      pointcloudMsg.is_bigendian = false;
-      pointcloudMsg.is_dense = false;
-
-      pointcloudMsg.point_step = pointcloudMsg.fields.size() * sizeof(float);
       pointcloudMsg.row_step = pointcloudMsg.point_step * pointcloudMsg.width;
+
+      //Define UV coordinates that map to depth image
+      if(this->u.size() != this->imageWidth || this->v.size() != this->imageHeight) {
+        this->u = std::vector<float>(this->imageWidth);
+        this->v = std::vector<float>(this->imageHeight);
+
+        for(unsigned int i = 0; i < this->u.size(); i++) {
+        this->u[i] = i / (float)(this->imageWidth - 1);
+        this->u[i] = 0.5 - u[i];
+        this->u[i] *= -1;
+        }
+
+        for(unsigned int i = 0; i < this->v.size(); i++) {
+          this->v[i] = i / (float)(this->imageHeight - 1);
+          this->v[i] = 0.5 - v[i];
+          this->v[i] *= -1;
+        }
+
+        flatData = std::vector<float>(imageWidth * imageHeight * AXIS_COUNT);
+      }
+
+      const cv_bridge::CvImagePtr image_ptr = cv_bridge::toCvCopy(msg);
+      image_ptr->image.convertTo(image_ptr->image, CV_32F, 1.0f / 255);
+
+      gen_pointcloud(image_ptr);
+
+      uint8_t* data = reinterpret_cast<uint8_t*>(&(flatData[0]));
+      std::vector<uint8_t> dataVector(data, data + flatData.size() * sizeof(float));
 
       pointcloudMsg.data = dataVector;
 
@@ -112,14 +104,10 @@ class GenPointCloudNode : public rclcpp::Node {
       publisher->publish(pointcloudMsg);
     }
 
-    std::vector<std::vector<std::vector<float>>> gen_pointcloud(const cv_bridge::CvImagePtr image_ptr) {
-      float imgFloat[this->imageHeight][this->imageWidth];
-      std::vector<std::vector<std::vector<float>>> points(this->imageHeight);
-
+    void gen_pointcloud(const cv_bridge::CvImagePtr image_ptr) {
       for(unsigned int i = 0; i < this->imageHeight; i++) {
         for(unsigned int j = 0; j < this->imageWidth; j++) {
-          imgFloat[i][j] = image_ptr->image.at<uchar>(i, j) / 255.0f;
-          imgFloat[i][j] = this->nearPlane / (imgFloat[i][j] * this->nearPlane / this->farPlane - imgFloat[i][j] + 1);
+          image_ptr->image.at<float>(i, j) = this->nearPlane / (image_ptr->image.at<float>(i, j) * this->nearPlane / this->farPlane - image_ptr->image.at<float>(i, j) + 1);
         }
       }
 
@@ -127,19 +115,11 @@ class GenPointCloudNode : public rclcpp::Node {
         std::vector<std::vector<float>> row(this->imageWidth);
 
         for(unsigned int j = 0; j < this->imageWidth; j++) {
-          std::vector<float> point(this->AXIS_COUNT);
-
-          point[0] = imgFloat[i][j] * this->u[j] * tan(this->hFov / 2.0f);
-          point[1] = imgFloat[i][j] * this->v[i] * tan(this->vFov / 2.0f);
-          point[2] = imgFloat[i][j];
-
-          row[j] = point;
+          this->flatData[i * this->imageWidth * AXIS_COUNT + j * AXIS_COUNT + 0] = image_ptr->image.at<float>(i, j) * this->u[j] * tan(this->hFov / 2.0f);
+          this->flatData[i * this->imageWidth * AXIS_COUNT + j * AXIS_COUNT + 1] = image_ptr->image.at<float>(i, j) * this->v[i] * tan(this->vFov / 2.0f);
+          this->flatData[i * this->imageWidth * AXIS_COUNT + j * AXIS_COUNT + 2] = image_ptr->image.at<float>(i, j);
         }
-
-        points[i] = row;
       }
-
-      return points;
     }
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscriber;
