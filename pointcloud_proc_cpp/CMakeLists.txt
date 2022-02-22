@@ -22,7 +22,7 @@ find_package(pointcloud_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 
-add_executable(gen_pointcloud src/gen_pointcloud.cpp)
+add_executable(gen_pointcloud src/run_gen_pointcloud.cpp src/gen_pointcloud.cpp)
 target_include_directories(gen_pointcloud PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
