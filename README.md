@@ -1,5 +1,14 @@
 # Point Cloud Generator
 
+## Prerequisites
+<p>Clone and build pybullet_ros package</p>
+
+[pybullet_ros](https://github.com/packbionics/pybullet_ros/)
+
+<p>Clone and build pointcloud_interfaces package</p>
+
+[pointcloud_interfaces](https://github.com/anthonybrown0528/pointcloud-interfaces)
+
 ## To Use
 <p>Source workspace</p>
 <p>Run: <p>
