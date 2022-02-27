@@ -12,13 +12,21 @@
 #include "pointcloud_interfaces/srv/camera_params.hpp"
 #include "pointcloud_interfaces/msg/camera_state.hpp"
 
+/**
+ * Structure to hold point position and define valid operations
+ */
 struct PointXYZ {
     float x;
     float y;
     float z;
 
+    // Adds 4 bytes of padding to turn the size of the structure
+    // into a power of 2
     float padding;
 
+    /**
+     * Defines the addition operator for PointXYZ
+     */
     PointXYZ operator+(PointXYZ b) {
       PointXYZ sum;
 
@@ -29,6 +37,9 @@ struct PointXYZ {
       return sum;
     }
 
+    /**
+     * Defines the addition operator for PointXYZ
+     */
     PointXYZ operator+(std::array<float, 3> b) {
       PointXYZ sum;
 
@@ -39,6 +50,9 @@ struct PointXYZ {
       return sum;
     }
 
+    /**
+     * Defines the subtraction operator for PointXYZ
+     */
     PointXYZ operator-(PointXYZ b) {
       PointXYZ difference;
 
@@ -49,6 +63,9 @@ struct PointXYZ {
       return difference;
     }
 
+    /**
+     * Defines the subtraction operator for PointXYZ
+     */
     PointXYZ operator-(std::array<float, 3> b) {
       PointXYZ difference;
 
@@ -60,45 +77,80 @@ struct PointXYZ {
     }
 };
 
+/**
+ * Subscribes to depth image and camera state topic to generate
+ * and publish a point cloud in the form of a PointCloud2 ROS message
+ */
 class GenPointCloudNode : public rclcpp::Node {
   public:
+
+    // Creates publishers and subscribers
+    // Defines structure of ROS PointCloud2 msg
     GenPointCloudNode(float hfov, float vfov, float near, float far);
+
   private:
+    
+    // Defines callbacks for subscriptions
     void subscriber_callback(const sensor_msgs::msg::Image::SharedPtr msg);
     void subscriber_camera_state_callback(const pointcloud_interfaces::msg::CameraState::SharedPtr msg);
 
+    // Generates point cloud
     void gen_pointcloud(const cv_bridge::CvImagePtr image_ptr);
+
+    // Updates the camera's transformation in world space
     void updateCameraState(const pointcloud_interfaces::msg::CameraState::SharedPtr msg);
+
+    // Updates values used for point cloud generation if necessary
     void updateFromMsg(const sensor_msgs::msg::Image::SharedPtr msg);
-    void remove_boundary_values();
+
+    // Performs hamilton product
     std::array<float, 4> calc_hamilton_product(std::array<float, 4> a, std::array<float, 4> b);
+
+    // Rotates point using a left hamilton product of camera rotation and right hamilton product of conjugate rotation
     void rotate_point(std::array<float, 4> quaternion, PointXYZ &point, std::array<float, 4> inverseQuaternion);
 
+    // Transforms points from camera space to world space
+    void convertToWorldFramePoint(unsigned int index);
+
+    // ROS Subscribers 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscriber;
     rclcpp::Subscription<pointcloud_interfaces::msg::CameraState>::SharedPtr subCameraState;
 
+    // ROS Publishers
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher;
 
+    // Published messages
     sensor_msgs::msg::PointCloud2 pointcloudMsg;
+
+    // Subscribed messages
     pointcloud_interfaces::msg::CameraState camState;
 
+    // Pixel size of depth image
     unsigned int imageWidth;
     unsigned int imageHeight;
 
+    // Clipping planes of the image
     float nearPlane;
     float farPlane;
 
+    // Used to convert from degrees to radians
     const float PI = 3.141592f;
     const float toRadians = PI / 180.0f;
 
+    // Stores the FOV of simulated camera
     float hFov;
     float vFov;
 
+    // Number of axes for a single point e.g. XYZ -> 3
     const unsigned int AXIS_COUNT;
-    const float SCALE_FACTOR;
 
+    // Stores the calculated conjugate quaternion for the camera's orientation
+    std::array<float, 4> camStateRotationConjugate;
+
+    // Stores the calculated UV coordinates of the pixels of the depth image
     std::vector<float> u;
     std::vector<float> v;
 
+    // Stores the unstructured point cloud
     std::vector<PointXYZ> flatData;
 };
