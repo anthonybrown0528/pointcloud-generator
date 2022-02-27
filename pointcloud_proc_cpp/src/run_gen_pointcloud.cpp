@@ -38,6 +38,7 @@ int main(int argc, char * argv[]) {
     RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Failed to call service");
   }
 
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Spinning node");
   rclcpp::spin(std::make_shared<GenPointCloudNode>(hFov, vFov, nearPlane, farPlane));
 
   rclcpp::shutdown();
