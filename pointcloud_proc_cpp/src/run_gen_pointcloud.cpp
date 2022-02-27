@@ -13,7 +13,7 @@ int main(int argc, char * argv[]) {
 
   std::shared_ptr<rclcpp::Node> node = rclcpp::Node::make_shared("camera_params_client");
   rclcpp::Client<pointcloud_interfaces::srv::CameraParams>::SharedPtr client =
-    node->create_client<pointcloud_interfaces::srv::CameraParams>("camera/params");
+    node->create_client<pointcloud_interfaces::srv::CameraParams>("camera_params");
 
   auto request = std::make_shared<pointcloud_interfaces::srv::CameraParams::Request>();
   while (!client->wait_for_service(1s)) {
