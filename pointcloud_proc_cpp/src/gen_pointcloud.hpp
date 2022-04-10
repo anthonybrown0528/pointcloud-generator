@@ -4,6 +4,11 @@
 #include <vector>
 #include <cv_bridge/cv_bridge.h>
 
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
+
 #include "rclcpp/rclcpp.hpp"
 
 #include "sensor_msgs/msg/point_cloud2.hpp"
@@ -14,107 +19,6 @@
 #include "geometry_msgs/msg/quaternion.hpp"
 
 #include "pointcloud_interfaces/srv/camera_params.hpp"
-
-/**
- * Structure to hold point position and define valid operations
- */
-struct PointXYZ {
-    float x;
-    float y;
-    float z;
-
-    PointXYZ() {
-      this->x = 0.0f;
-      this->y = 0.0f;
-      this->z = 0.0f;
-    }
-
-    PointXYZ(float x, float y, float z) {
-      this->x = x;
-      this->y = y;
-      this->z = z;
-    }
-
-    // Adds 4 bytes of padding to turn the size of the structure
-    // into a power of 2
-    float padding;
-
-    /**
-     * Defines the addition operator for PointXYZ
-     */
-    PointXYZ operator+(PointXYZ b) {
-      PointXYZ sum;
-
-      sum.x = this->x + b.x;
-      sum.y = this->y + b.y;
-      sum.z = this->z + b.z;
-
-      return sum;
-    }
-
-    /**
-     * Defines the addition operator for PointXYZ
-     */
-    PointXYZ operator+(std::array<float, 3> b) {
-      PointXYZ sum;
-
-      sum.x = this->x + b[0];
-      sum.y = this->y + b[1];
-      sum.z = this->z + b[2];
-
-      return sum;
-    }
-
-    /**
-     * Defines the subtraction operator for PointXYZ
-     */
-    PointXYZ operator-(PointXYZ b) {
-      PointXYZ difference;
-
-      difference.x = this->x - b.x;
-      difference.y = this->y - b.y;
-      difference.z = this->z - b.z;
-
-      return difference;
-    }
-
-    /**
-     * Defines the subtraction operator for PointXYZ
-     */
-    PointXYZ operator-(std::array<float, 3> b) {
-      PointXYZ difference;
-
-      difference.x = this->x - b[0];
-      difference.y = this->y - b[1];
-      difference.z = this->z - b[2];
-
-      return difference;
-    }
-
-    bool operator==(PointXYZ b) {
-      if(abs(this->x - b.x) < 0.001) {
-        if(abs(this->y - b.y) < 0.001) {
-          if(abs(this->z - b.z) < 0.001) {
-            return true;
-          }
-        }
-      }
-
-      return false;
-    }
-
-    bool operator==(std::array<float, 3> b) {
-      if(abs(this->x - b[0]) < 0.001) {
-        if(abs(this->y - b[1]) < 0.001) {
-          if(abs(this->z - b[2]) < 0.001) {
-            return true;
-          }
-        }
-      }
-
-      return false;
-    }
-};
 
 /**
  * Subscribes to depth image and camera state topic to generate
@@ -148,7 +52,7 @@ class GenPointCloudNode : public rclcpp::Node {
     geometry_msgs::msg::Quaternion calc_hamilton_product(geometry_msgs::msg::Quaternion a, geometry_msgs::msg::Quaternion b);
 
     // Rotates point using a left hamilton product of camera rotation and right hamilton product of conjugate rotation
-    void rotate_point(geometry_msgs::msg::Quaternion quaternion, PointXYZ &point, geometry_msgs::msg::Quaternion inverseQuaternion);
+    void rotate_point(geometry_msgs::msg::Quaternion quaternion, glm::vec4 &point, geometry_msgs::msg::Quaternion inverseQuaternion);
 
     // Transforms points from camera space to world space
     void convertToWorldFramePoint(unsigned int index);
@@ -195,5 +99,5 @@ class GenPointCloudNode : public rclcpp::Node {
     std::vector<float> v;
 
     // Stores the unstructured point cloud
-    std::vector<PointXYZ> flatData;
+    std::vector<glm::vec4> flatData;
 };

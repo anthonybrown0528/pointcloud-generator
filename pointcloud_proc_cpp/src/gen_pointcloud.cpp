@@ -78,7 +78,7 @@ void GenPointCloudNode::subscriber_callback(const sensor_msgs::msg::Image::Share
   updateFromMsg(msg);
 
   //Resets the contents of the vector
-  flatData = std::vector<PointXYZ>(imageWidth * imageHeight);
+  flatData = std::vector<glm::vec4>(imageWidth * imageHeight);
 
   //Converts ROS Image msg to cv::Mat and returns its pointer
   const cv_bridge::CvImagePtr image_ptr = cv_bridge::toCvCopy(msg);
@@ -92,7 +92,7 @@ void GenPointCloudNode::subscriber_callback(const sensor_msgs::msg::Image::Share
 
   //Converts from 32-bit floating-point to 8-bit unsigned integer
   uint8_t* data = reinterpret_cast<uint8_t*>(&(flatData[0]));
-  std::vector<uint8_t> dataVector(data, data + flatData.size() * sizeof(PointXYZ));
+  std::vector<uint8_t> dataVector(data, data + flatData.size() * sizeof(glm::vec4));
 
   pointcloudMsg.height = 1;
   pointcloudMsg.width = flatData.size();
@@ -206,8 +206,8 @@ geometry_msgs::msg::Quaternion GenPointCloudNode::calc_hamilton_product(geometry
 }
 
 void GenPointCloudNode::remove_clip_points() {
-  std::vector<PointXYZ> filteredPoints;
-  PointXYZ nullPoint(0.0f, 0.0f, 0.0f);
+  std::vector<glm::vec4> filteredPoints;
+  glm::vec4 nullPoint(0.0f, 0.0f, 0.0f, 0.0f);
 
   for(unsigned int i = 0; i < flatData.size(); i++) {
     if(flatData[i] == nullPoint) {
@@ -227,7 +227,7 @@ void GenPointCloudNode::remove_clip_points() {
  * @param point point to be rotated
  * @param conjugateQuaternion conjugate of the orientation of the camera
  */
-void GenPointCloudNode::rotate_point(geometry_msgs::msg::Quaternion quaternion, PointXYZ &point, geometry_msgs::msg::Quaternion conjugateQuaternion) {
+void GenPointCloudNode::rotate_point(geometry_msgs::msg::Quaternion quaternion, glm::vec4 &point, geometry_msgs::msg::Quaternion conjugateQuaternion) {
 
   //Converts point to pure quaternion to perform hamilton product
   geometry_msgs::msg::Quaternion pointQuaternion;
