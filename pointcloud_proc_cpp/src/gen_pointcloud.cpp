@@ -11,11 +11,13 @@ using namespace std::chrono_literals;
  * @param near near clipping plane of the image
  * @param far far clipping plane of the image
  */
-GenPointCloudNode::GenPointCloudNode(float hfov, float vfov, float near, float far) : Node("gen_pointcloud"), AXIS_COUNT(3) {
+GenPointCloudNode::GenPointCloudNode(float hfov, float vfov, float near, float far) : Node("gen_pointcloud"), 
+                                                                                      AXIS_COUNT(3),
+                                                                                      UCHAR_TO_FLOAT_SCALE(1.0f / 255) {
 
   //Subscribe to depth image topic and camera state topic
   subscriber = this->create_subscription<sensor_msgs::msg::Image>("image", 2, std::bind(&GenPointCloudNode::subscriber_callback, this, std::placeholders::_1));
-  subCameraState = this->create_subscription<pointcloud_interfaces::msg::CameraState>("camera_state", 2, std::bind(&GenPointCloudNode::subscriber_camera_state_callback, this, std::placeholders::_1));
+  subPoseStamped = this->create_subscription<geometry_msgs::msg::PoseStamped>("camera_state", 2, std::bind(&GenPointCloudNode::subscriber_camera_state_callback, this, std::placeholders::_1));
 
   //Create publisher for point cloud
   publisher = this->create_publisher<sensor_msgs::msg::PointCloud2>("pointcloud", 2);
@@ -53,15 +55,15 @@ GenPointCloudNode::GenPointCloudNode(float hfov, float vfov, float near, float f
  * Handles subscription to camera state topic and 
  * updates camera translation and orientation at each call
  * 
- * @param msg pointer to CameraState message
+ * @param msg pointer to PoseStamped message
  */
-void GenPointCloudNode::subscriber_camera_state_callback(const pointcloud_interfaces::msg::CameraState::SharedPtr msg) {
-  updateCameraState(msg);
+void GenPointCloudNode::subscriber_camera_state_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+  updatePoseStamped(msg);
 
-  camStateRotationConjugate[0] = -this->camState.rotation[0];
-  camStateRotationConjugate[1] = -this->camState.rotation[1];
-  camStateRotationConjugate[2] = -this->camState.rotation[2];
-  camStateRotationConjugate[3] =  this->camState.rotation[3];
+  camPoseRotationConjugate.x = -this->camPose.pose.orientation.x;
+  camPoseRotationConjugate.y = -this->camPose.pose.orientation.y;
+  camPoseRotationConjugate.z = -this->camPose.pose.orientation.z;
+  camPoseRotationConjugate.w =  this->camPose.pose.orientation.w;
 }
 
 /**
@@ -71,6 +73,8 @@ void GenPointCloudNode::subscriber_camera_state_callback(const pointcloud_interf
  * @param msg pointer to Image message
  */
 void GenPointCloudNode::subscriber_callback(const sensor_msgs::msg::Image::SharedPtr msg) {
+  auto time_start = std::chrono::steady_clock::now();
+
   updateFromMsg(msg);
 
   //Resets the contents of the vector
@@ -80,17 +84,25 @@ void GenPointCloudNode::subscriber_callback(const sensor_msgs::msg::Image::Share
   const cv_bridge::CvImagePtr image_ptr = cv_bridge::toCvCopy(msg);
 
   //Converts image from 8-bit unsigned to 32-bit floating-point values
-  image_ptr->image.convertTo(image_ptr->image, CV_32F, 1.0f / 255);
+  image_ptr->image.convertTo(image_ptr->image, CV_32F, UCHAR_TO_FLOAT_SCALE);
 
   //Computes XYZ coordinates of each point and stores it in the flatData variable
   gen_pointcloud(image_ptr);
+  remove_clip_points();
 
   //Converts from 32-bit floating-point to 8-bit unsigned integer
   uint8_t* data = reinterpret_cast<uint8_t*>(&(flatData[0]));
   std::vector<uint8_t> dataVector(data, data + flatData.size() * sizeof(PointXYZ));
 
+  pointcloudMsg.height = 1;
+  pointcloudMsg.width = flatData.size();
+
   pointcloudMsg.data = dataVector;
   pointcloudMsg.row_step = dataVector.size();
+
+  auto time_end = std::chrono::steady_clock::now();
+
+  RCLCPP_INFO(this->get_logger(), std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() / 1000.0f));
 
   RCLCPP_INFO(this->get_logger(), "Publishing pointcloud");
   publisher->publish(pointcloudMsg);
@@ -99,12 +111,12 @@ void GenPointCloudNode::subscriber_callback(const sensor_msgs::msg::Image::Share
 /**
  * Updates camera position and orientation
  * 
- * @param msg pointer to CameraState message
+ * @param msg pointer to PoseStamped message
  */
-void GenPointCloudNode::updateCameraState(const pointcloud_interfaces::msg::CameraState::SharedPtr msg) {
+void GenPointCloudNode::updatePoseStamped(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
 
   //Stores rotation and translation transformations of simulated camera
-  this->camState = *msg;
+  this->camPose = *msg;
 }
 
 /**
@@ -148,24 +160,29 @@ void GenPointCloudNode::updateFromMsg(const sensor_msgs::msg::Image::SharedPtr m
  * @param image_ptr pointer to depth image in the form of 32-bit floating-point values in range 0.0 - 1.0
  */
 void GenPointCloudNode::gen_pointcloud(const cv_bridge::CvImagePtr image_ptr) {
-  //Scales depth image from 0.0 - 1.0 to nearPlane - farPlane
+  const float TAN_HALF_H_FOV = tan(this->hFov / 2.0f);
+  const float TAN_HALF_V_FOV = tan(this->vFov / 2.0f);
+
   for(unsigned int i = 0; i < this->imageHeight; i++) {
+
+    const float Z_TRANSFORM = this->v[i] * TAN_HALF_V_FOV;
+    const float LOOP_OFFSET = i * this->imageWidth;
+
     for(unsigned int j = 0; j < this->imageWidth; j++) {
+
+      //Scales depth image from 0.0 - 1.0 to nearPlane - farPlane
       image_ptr->image.at<float>(i, j) = this->nearPlane / (image_ptr->image.at<float>(i, j) * this->nearPlane / this->farPlane - image_ptr->image.at<float>(i, j) + 1);
-    }
-  }
-
-  for(unsigned int i = 0; i < this->imageHeight; i++) {
-    for(unsigned int j = 0; j < this->imageWidth; j++) {
-
+    
       //Skips calculations for values at the clipping planes
       if(abs(image_ptr->image.at<float>(i, j) - this->nearPlane) < 0.001 || abs(image_ptr->image.at<float>(i, j) - this->farPlane) < 0.001) {
         continue;
       }
 
-      this->flatData[i * this->imageWidth + j].y = image_ptr->image.at<float>(i, j) * this->u[j] * tan(this->hFov / 2.0f);
-      this->flatData[i * this->imageWidth + j].z = image_ptr->image.at<float>(i, j) * this->v[i] * tan(this->vFov / 2.0f);
-      this->flatData[i * this->imageWidth + j].x = image_ptr->image.at<float>(i, j);
+      this->flatData[LOOP_OFFSET + j].y = image_ptr->image.at<float>(i, j) * this->u[j] * TAN_HALF_H_FOV;
+      this->flatData[LOOP_OFFSET + j].z = image_ptr->image.at<float>(i, j) * Z_TRANSFORM;
+      this->flatData[LOOP_OFFSET + j].x = image_ptr->image.at<float>(i, j);
+
+      // convertToWorldFramePoint(LOOP_OFFSET + j);
     }
   }
 }
@@ -175,17 +192,32 @@ void GenPointCloudNode::gen_pointcloud(const cv_bridge::CvImagePtr image_ptr) {
  * 
  * @param a left quaternion
  * @param b right quaternion
- * @return std::array<float, 4> hamilton product of a and b
+ * @return geometry_msgs::msg::Quaternion hamilton product of a and b
  */
-std::array<float, 4> GenPointCloudNode::calc_hamilton_product(std::array<float, 4> a, std::array<float, 4> b) {
-  std::array<float, 4> newQuaternion;
+geometry_msgs::msg::Quaternion GenPointCloudNode::calc_hamilton_product(geometry_msgs::msg::Quaternion a, geometry_msgs::msg::Quaternion b) {
+  geometry_msgs::msg::Quaternion newQuaternion;
 
-  newQuaternion[0] = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
-  newQuaternion[1] = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
-  newQuaternion[2] = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
-  newQuaternion[3] = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] + a[2] * b[2];
+  newQuaternion.x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
+  newQuaternion.y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x;
+  newQuaternion.z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
+  newQuaternion.w = a.w * b.w - a.x * b.x - a.y * b.y + a.z * b.z;
 
   return newQuaternion;
+}
+
+void GenPointCloudNode::remove_clip_points() {
+  std::vector<PointXYZ> filteredPoints;
+  PointXYZ nullPoint(0.0f, 0.0f, 0.0f);
+
+  for(unsigned int i = 0; i < flatData.size(); i++) {
+    if(flatData[i] == nullPoint) {
+      continue;
+    }
+
+    filteredPoints.push_back(flatData[i]);
+  }
+
+  flatData = filteredPoints;
 }
 
 /**
@@ -195,23 +227,23 @@ std::array<float, 4> GenPointCloudNode::calc_hamilton_product(std::array<float, 
  * @param point point to be rotated
  * @param conjugateQuaternion conjugate of the orientation of the camera
  */
-void GenPointCloudNode::rotate_point(std::array<float, 4> quaternion, PointXYZ &point, std::array<float, 4> conjugateQuaternion) {
+void GenPointCloudNode::rotate_point(geometry_msgs::msg::Quaternion quaternion, PointXYZ &point, geometry_msgs::msg::Quaternion conjugateQuaternion) {
 
   //Converts point to pure quaternion to perform hamilton product
-  std::array<float, 4> pointQuaternion;
+  geometry_msgs::msg::Quaternion pointQuaternion;
 
-  pointQuaternion[0] = point.x;
-  pointQuaternion[1] = point.y;
-  pointQuaternion[2] = point.z;
-  pointQuaternion[3] = 0.0f;
+  pointQuaternion.x = point.x;
+  pointQuaternion.y = point.y;
+  pointQuaternion.z = point.z;
+  pointQuaternion.w = 0.0f;
 
-  std::array<float, 4> partialRotationCalculation = calc_hamilton_product(quaternion, pointQuaternion);
-  std::array<float, 4> fullRotationCalculation = calc_hamilton_product(partialRotationCalculation, conjugateQuaternion);
+  geometry_msgs::msg::Quaternion partialRotationCalculation = calc_hamilton_product(quaternion, pointQuaternion);
+  geometry_msgs::msg::Quaternion fullRotationCalculation = calc_hamilton_product(partialRotationCalculation, conjugateQuaternion);
 
   //Convert pure quaternion to 3-D vector
-  point.x = fullRotationCalculation[0];
-  point.y = fullRotationCalculation[1];
-  point.z = fullRotationCalculation[2];
+  point.x = fullRotationCalculation.x;
+  point.y = fullRotationCalculation.y;
+  point.z = fullRotationCalculation.z;
 }
 
 /**
@@ -222,8 +254,10 @@ void GenPointCloudNode::rotate_point(std::array<float, 4> quaternion, PointXYZ &
 void GenPointCloudNode::convertToWorldFramePoint(unsigned int index) {
 
     //Perform rotation transformation
-    rotate_point(this->camState.rotation, this->flatData[index], camStateRotationConjugate);
+    rotate_point(this->camPose.pose.orientation, this->flatData[index], camPoseRotationConjugate);
 
     //Perform translation transformation
-    this->flatData[index] = this->flatData[index] + this->camState.translation;
+    this->flatData[index].x = this->flatData[index].x + this->camPose.pose.position.x;
+    this->flatData[index].y = this->flatData[index].y + this->camPose.pose.position.y;
+    this->flatData[index].z = this->flatData[index].z + this->camPose.pose.position.z;
 }

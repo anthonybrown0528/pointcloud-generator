@@ -1,5 +1,6 @@
 #include <cmath>
 #include <chrono>
+#include <chrono>
 #include <vector>
 #include <cv_bridge/cv_bridge.h>
 
@@ -9,8 +10,10 @@
 #include "sensor_msgs/msg/point_field.hpp"
 #include "sensor_msgs/msg/image.hpp"
 
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/quaternion.hpp"
+
 #include "pointcloud_interfaces/srv/camera_params.hpp"
-#include "pointcloud_interfaces/msg/camera_state.hpp"
 
 /**
  * Structure to hold point position and define valid operations
@@ -19,6 +22,18 @@ struct PointXYZ {
     float x;
     float y;
     float z;
+
+    PointXYZ() {
+      this->x = 0.0f;
+      this->y = 0.0f;
+      this->z = 0.0f;
+    }
+
+    PointXYZ(float x, float y, float z) {
+      this->x = x;
+      this->y = y;
+      this->z = z;
+    }
 
     // Adds 4 bytes of padding to turn the size of the structure
     // into a power of 2
@@ -75,6 +90,30 @@ struct PointXYZ {
 
       return difference;
     }
+
+    bool operator==(PointXYZ b) {
+      if(abs(this->x - b.x) < 0.001) {
+        if(abs(this->y - b.y) < 0.001) {
+          if(abs(this->z - b.z) < 0.001) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    bool operator==(std::array<float, 3> b) {
+      if(abs(this->x - b[0]) < 0.001) {
+        if(abs(this->y - b[1]) < 0.001) {
+          if(abs(this->z - b[2]) < 0.001) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
 };
 
 /**
@@ -92,29 +131,31 @@ class GenPointCloudNode : public rclcpp::Node {
     
     // Defines callbacks for subscriptions
     void subscriber_callback(const sensor_msgs::msg::Image::SharedPtr msg);
-    void subscriber_camera_state_callback(const pointcloud_interfaces::msg::CameraState::SharedPtr msg);
+    void subscriber_camera_state_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+
+    void remove_clip_points();
 
     // Generates point cloud
     void gen_pointcloud(const cv_bridge::CvImagePtr image_ptr);
 
     // Updates the camera's transformation in world space
-    void updateCameraState(const pointcloud_interfaces::msg::CameraState::SharedPtr msg);
+    void updatePoseStamped(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
 
     // Updates values used for point cloud generation if necessary
     void updateFromMsg(const sensor_msgs::msg::Image::SharedPtr msg);
 
     // Performs hamilton product
-    std::array<float, 4> calc_hamilton_product(std::array<float, 4> a, std::array<float, 4> b);
+    geometry_msgs::msg::Quaternion calc_hamilton_product(geometry_msgs::msg::Quaternion a, geometry_msgs::msg::Quaternion b);
 
     // Rotates point using a left hamilton product of camera rotation and right hamilton product of conjugate rotation
-    void rotate_point(std::array<float, 4> quaternion, PointXYZ &point, std::array<float, 4> inverseQuaternion);
+    void rotate_point(geometry_msgs::msg::Quaternion quaternion, PointXYZ &point, geometry_msgs::msg::Quaternion inverseQuaternion);
 
     // Transforms points from camera space to world space
     void convertToWorldFramePoint(unsigned int index);
 
     // ROS Subscribers 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscriber;
-    rclcpp::Subscription<pointcloud_interfaces::msg::CameraState>::SharedPtr subCameraState;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subPoseStamped;
 
     // ROS Publishers
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher;
@@ -123,7 +164,7 @@ class GenPointCloudNode : public rclcpp::Node {
     sensor_msgs::msg::PointCloud2 pointcloudMsg;
 
     // Subscribed messages
-    pointcloud_interfaces::msg::CameraState camState;
+    geometry_msgs::msg::PoseStamped camPose;
 
     // Pixel size of depth image
     unsigned int imageWidth;
@@ -144,8 +185,10 @@ class GenPointCloudNode : public rclcpp::Node {
     // Number of axes for a single point e.g. XYZ -> 3
     const unsigned int AXIS_COUNT;
 
+    const float UCHAR_TO_FLOAT_SCALE;
+
     // Stores the calculated conjugate quaternion for the camera's orientation
-    std::array<float, 4> camStateRotationConjugate;
+    geometry_msgs::msg::Quaternion camPoseRotationConjugate;
 
     // Stores the calculated UV coordinates of the pixels of the depth image
     std::vector<float> u;
