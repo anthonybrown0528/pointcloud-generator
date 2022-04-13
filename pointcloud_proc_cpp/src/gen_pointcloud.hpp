@@ -4,7 +4,7 @@
 #include <vector>
 #include <cv_bridge/cv_bridge.h>
 
-#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 #include <glm/vec4.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -33,26 +33,17 @@ class GenPointCloudNode : public rclcpp::Node {
 
   private:
     
-    // Defines callbacks for subscriptions
-    void subscriber_callback(const sensor_msgs::msg::Image::SharedPtr msg);
-    void subscriber_camera_state_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+    // Callbacks for subscriptions
+    void imageSubCallback(const sensor_msgs::msg::Image::SharedPtr msg);
+    void poseSubCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
 
-    void remove_clip_points();
+    void removeClipPoints();
 
     // Generates point cloud
-    void gen_pointcloud(const cv_bridge::CvImagePtr image_ptr);
-
-    // Updates the camera's transformation in world space
-    void updatePoseStamped(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+    void genPointCloud(const cv_bridge::CvImagePtr imagePtr);
 
     // Updates values used for point cloud generation if necessary
     void updateFromMsg(const sensor_msgs::msg::Image::SharedPtr msg);
-
-    // Performs hamilton product
-    geometry_msgs::msg::Quaternion calc_hamilton_product(geometry_msgs::msg::Quaternion a, geometry_msgs::msg::Quaternion b);
-
-    // Rotates point using a left hamilton product of camera rotation and right hamilton product of conjugate rotation
-    void rotate_point(geometry_msgs::msg::Quaternion quaternion, glm::vec4 &point, geometry_msgs::msg::Quaternion inverseQuaternion);
 
     // Transforms points from camera space to world space
     void convertToWorldFramePoint(unsigned int index);
@@ -65,10 +56,10 @@ class GenPointCloudNode : public rclcpp::Node {
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher;
 
     // Published messages
-    sensor_msgs::msg::PointCloud2 pointcloudMsg;
+    sensor_msgs::msg::PointCloud2 pointCloudMsg;
 
-    // Subscribed messages
-    geometry_msgs::msg::PoseStamped camPose;
+    glm::vec4 cameraPosition;
+    glm::quat cameraOrientation;
 
     // Pixel size of depth image
     unsigned int imageWidth;
@@ -77,10 +68,6 @@ class GenPointCloudNode : public rclcpp::Node {
     // Clipping planes of the image
     float nearPlane;
     float farPlane;
-
-    // Used to convert from degrees to radians
-    const float PI = 3.141592f;
-    const float toRadians = PI / 180.0f;
 
     // Stores the FOV of simulated camera
     float hFov;
@@ -91,13 +78,10 @@ class GenPointCloudNode : public rclcpp::Node {
 
     const float UCHAR_TO_FLOAT_SCALE;
 
-    // Stores the calculated conjugate quaternion for the camera's orientation
-    geometry_msgs::msg::Quaternion camPoseRotationConjugate;
-
     // Stores the calculated UV coordinates of the pixels of the depth image
     std::vector<float> u;
     std::vector<float> v;
 
     // Stores the unstructured point cloud
-    std::vector<glm::vec4> flatData;
+    std::vector<glm::vec4> data;
 };
