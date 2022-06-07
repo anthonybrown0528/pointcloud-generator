@@ -1,4 +1,5 @@
 #include "gen_pointcloud.hpp"
+#include "pointcloud_interfaces/srv/camera_params.hpp"
 
 using namespace std::chrono_literals;
 

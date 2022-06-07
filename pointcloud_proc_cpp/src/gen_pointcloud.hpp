@@ -2,12 +2,13 @@
 #include <chrono>
 #include <chrono>
 #include <vector>
-#include <cv_bridge/cv_bridge.h>
 
 #include <glm/vec4.hpp>
 #include <glm/vec4.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
+
+#include <cv_bridge/cv_bridge.h>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -17,8 +18,6 @@
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/quaternion.hpp"
-
-#include "pointcloud_interfaces/srv/camera_params.hpp"
 
 /**
  * Subscribes to depth image and camera state topic to generate
@@ -32,11 +31,14 @@ class GenPointCloudNode : public rclcpp::Node {
     GenPointCloudNode(float hfov, float vfov, float near, float far);
 
   private:
+
+    /*********** MEMBER FUNCTIONS ***********/
     
     // Callbacks for subscriptions
     void imageSubCallback(const sensor_msgs::msg::Image::SharedPtr msg);
     void poseSubCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
 
+    // Methods for removing clipped points
     int countClipPoints(const cv_bridge::CvImagePtr imagePtr);
     void removeClipPoints(int count);
 
@@ -49,16 +51,19 @@ class GenPointCloudNode : public rclcpp::Node {
     // Transforms points from camera space to world space
     void convertToWorldFramePoint(unsigned int index);
 
+    /*********** MEMBER VARIABLES ***********/
+
     // ROS Subscribers 
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscriber;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subImage;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subPoseStamped;
 
     // ROS Publishers
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher;
 
-    // Published messages
+    // Topic Messages
     sensor_msgs::msg::PointCloud2 pointCloudMsg;
 
+    // Camera translation and orientation
     glm::vec4 cameraPosition;
     glm::quat cameraOrientation;
 
@@ -71,13 +76,8 @@ class GenPointCloudNode : public rclcpp::Node {
     float farPlane;
 
     // Stores the FOV of simulated camera
-    float hFov;
-    float vFov;
-
-    // Number of axes for a single point e.g. XYZ -> 3
-    const unsigned int AXIS_COUNT;
-
-    const float UCHAR_TO_FLOAT_SCALE;
+    float horFov;
+    float vertFov;
 
     // Stores the calculated UV coordinates of the pixels of the depth image
     std::vector<float> u;

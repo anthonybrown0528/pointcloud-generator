@@ -3,44 +3,44 @@
 using namespace std::chrono_literals;
 
 /**
- * Construct a new Gen Point Cloud Node::Gen Point Cloud Node object,
- * creates publishers and subscribers, and defines structure of ROS PointCloud2 msg
+ * @brief Construct a new Gen Point Cloud Node::Gen Point Cloud Node object,
+ *        creates publishers and subscribers, and defines structure of ROS PointCloud2 msg
  * 
- * @param hfov horizontal field of view of the camera
- * @param vfov vertical field of view of the camera
- * @param near near clipping plane of the image
- * @param far far clipping plane of the image
+ * @param horFov horizontal field of view of the camera
+ * @param vertFov vertical field of view of the camera
+ * @param nearPlane near clipping plane of the image
+ * @param farPlane far clipping plane of the image
  */
-GenPointCloudNode::GenPointCloudNode(float hfov, float vfov, float near, float far) : Node("gen_pointcloud"), 
-                                                                                      AXIS_COUNT(3),
-                                                                                      UCHAR_TO_FLOAT_SCALE(1.0f / 255) {
+GenPointCloudNode::GenPointCloudNode(float horFov, float vertFov, float nearPlane, float farPlane) : Node("gen_pointcloud")  {
 
-  //Subscribe to depth image topic and camera state topic
-  subscriber = this->create_subscription<sensor_msgs::msg::Image>("image", 2, std::bind(&GenPointCloudNode::imageSubCallback, this, std::placeholders::_1));
-  subPoseStamped = this->create_subscription<geometry_msgs::msg::PoseStamped>("camera_state", 2, std::bind(&GenPointCloudNode::poseSubCallback, this, std::placeholders::_1));
+  const int AXIS_COUNT = 3;
+  const std::string fieldNames[] = {"x", "y", "z"};
+
+  sensor_msgs::msg::PointField newField;
+
+  //Clipping planes of simulated camera
+  this->nearPlane = nearPlane;
+  this->farPlane = farPlane;
+
+  //FOV of simulated camera
+  this->horFov = glm::radians(horFov);
+  this->vertFov = glm::radians(vertFov);
 
   //Create publisher for point cloud
   publisher = this->create_publisher<sensor_msgs::msg::PointCloud2>("pointcloud", 2);
 
-  //Clipping planes of simulated camera
-  nearPlane = near;
-  farPlane = far;
-
-  //FOV of simulated camera
-  hFov = glm::radians(hfov);
-  vFov = glm::radians(vfov);
+  //Subscribe to depth image topic and camera state topic
+  subImage = this->create_subscription<sensor_msgs::msg::Image>("image", 2, std::bind(&GenPointCloudNode::imageSubCallback, this, std::placeholders::_1));
+  subPoseStamped = this->create_subscription<geometry_msgs::msg::PoseStamped>("camera_state", 2, std::bind(&GenPointCloudNode::poseSubCallback, this, std::placeholders::_1));
 
   pointCloudMsg.is_bigendian = false;
   pointCloudMsg.is_dense = false;
-
-  sensor_msgs::msg::PointField newField;
 
   //Each field represents a 32-bit floating-point value
   newField.datatype = newField.FLOAT32;
   newField.count = 1;
 
-  const std::string fieldNames[] = {"x", "y", "z"};
-
+  // Specifies the structure of the PointCloud2 message
   for(unsigned int i = 0; i < AXIS_COUNT; i++) {
     newField.name = fieldNames[i];
     newField.offset = i * sizeof(float);
@@ -48,12 +48,13 @@ GenPointCloudNode::GenPointCloudNode(float hfov, float vfov, float near, float f
     pointCloudMsg.fields.push_back(newField);
   }
 
+  // Number of bytes that correspond to a single point
   pointCloudMsg.point_step = sizeof(glm::vec4);
 }
 
 /**
- * Handles subscription to camera state topic and 
- * updates camera translation and orientation at each call
+ * @brief Handles subscription to camera state topic and 
+ *        updates camera translation and orientation at each call
  * 
  * @param msg pointer to PoseStamped message
  */
@@ -69,8 +70,8 @@ void GenPointCloudNode::poseSubCallback(const geometry_msgs::msg::PoseStamped::S
 }
 
 /**
- * Handles subscription to depth image topic and 
- * generates an unstructured vector containing points in camera space
+ * @brief Handles subscription to depth image topic and 
+ *        generates an unstructured vector containing points in camera space
  * 
  * @param msg pointer to Image message
  */
@@ -108,8 +109,8 @@ void GenPointCloudNode::imageSubCallback(const sensor_msgs::msg::Image::SharedPt
 }
 
 /**
- * Updates parameters of the received image such as pixel size of image,
- * frame id of camera, and uv coordinates (if size changes)
+ * @brief Updates parameters of the received image such as pixel size of image,
+ *        frame id of camera, and uv coordinates (if size changes)
  * 
  * @param msg pointer to Image message
  */
@@ -143,17 +144,15 @@ void GenPointCloudNode::updateFromMsg(const sensor_msgs::msg::Image::SharedPtr m
 }
 
 /**
- * Generates point cloud based on depth image
+ * @brief Generates point cloud based on depth image
  * 
  * @param image_ptr pointer to depth image in the form of 32-bit floating-point values in range 0.0 - 1.0
  */
 void GenPointCloudNode::genPointCloud(const cv_bridge::CvImagePtr image_ptr) {
-  const float TAN_HALF_H_FOV = tan(hFov / 2.0f);
-  const float TAN_HALF_V_FOV = tan(vFov / 2.0f);
+  const float TAN_HALF_H_FOV = tan(horFov / 2.0f);
+  const float TAN_HALF_V_FOV = tan(vertFov / 2.0f);
 
   const float DEPTH_RANGE = farPlane - nearPlane;
-  const float MAX_NORMAL_DEPTH = 1.0f;
-  const float FLOATING_POINT_THRESHOLD = 0.001f;
 
   float scaled_depth;
   float current_z_transform;
@@ -169,7 +168,7 @@ void GenPointCloudNode::genPointCloud(const cv_bridge::CvImagePtr image_ptr) {
     for(unsigned int j = 0; j < imageWidth; j++) {
 
       //Skips calculations for values at the clipping planes
-      if(image_ptr->image.at<uchar>(i, j) == 255 || image_ptr->image.at<uchar>(i, j) == 0) {
+      if(image_ptr->image.at<uchar>(i, j) == SCALE || image_ptr->image.at<uchar>(i, j) == 0) {
         continue;
       }
 
@@ -187,11 +186,20 @@ void GenPointCloudNode::genPointCloud(const cv_bridge::CvImagePtr image_ptr) {
   }
 }
 
+/**
+ * @brief Counts the number of points that correspond to points 
+ *        farther than the far plane or nearer than the near plane
+ * 
+ * @param imagePtr pointer to a CvImage containing a depth image
+ * @return number of points matching the given description
+ */
 int GenPointCloudNode::countClipPoints(const cv_bridge::CvImagePtr imagePtr) {
+  const int SCALE = 255;
   int count = 0;
+
   for(unsigned int i = 0; i < imageHeight; i++) {
     for(unsigned int j = 0; j < imageWidth; j++) {
-      if(imagePtr->image.at<uchar>(i, j) == 255 || imagePtr->image.at<uchar>(i, j) == 0) {
+      if(imagePtr->image.at<uchar>(i, j) == SCALE || imagePtr->image.at<uchar>(i, j) == 0) {
         count++;
       }
     }
@@ -200,6 +208,11 @@ int GenPointCloudNode::countClipPoints(const cv_bridge::CvImagePtr imagePtr) {
   return count;
 }
 
+/**
+ * @brief Removes the points outside the clip space of simulated camera
+ * 
+ * @param count number of points outside the clip space
+ */
 void GenPointCloudNode::removeClipPoints(int count) {
   std::vector<glm::vec4> filteredPoints(data.size() - count);
   glm::vec4 nullPoint(0.0f, 0.0f, 0.0f, 0.0f);
@@ -217,7 +230,7 @@ void GenPointCloudNode::removeClipPoints(int count) {
 }
 
 /**
- * Converts point from camera space to world space using camera orientation and translation
+ * @brief Converts point from camera space to world space using camera orientation and translation
  * 
  * @param index index of the point in the flatData vector
  */
