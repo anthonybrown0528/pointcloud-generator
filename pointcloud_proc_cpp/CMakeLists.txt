@@ -34,19 +34,7 @@ ament_target_dependencies(
   "cv_bridge"
 )
 
-add_executable(read_depth_image src/read_depth_image.cpp)
-target_include_directories(read_depth_image PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>)
-ament_target_dependencies(
-  read_depth_image
-  "rclcpp"
-  "pointcloud_interfaces"
-  "sensor_msgs"
-  "cv_bridge"
-)
-
-install(TARGETS gen_pointcloud read_depth_image
+install(TARGETS gen_pointcloud
   DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)

@@ -37,7 +37,8 @@ class GenPointCloudNode : public rclcpp::Node {
     void imageSubCallback(const sensor_msgs::msg::Image::SharedPtr msg);
     void poseSubCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
 
-    void removeClipPoints();
+    int countClipPoints(const cv_bridge::CvImagePtr imagePtr);
+    void removeClipPoints(int count);
 
     // Generates point cloud
     void genPointCloud(const cv_bridge::CvImagePtr imagePtr);

@@ -85,12 +85,11 @@ void GenPointCloudNode::imageSubCallback(const sensor_msgs::msg::Image::SharedPt
   //Converts ROS Image msg to cv::Mat and returns its pointer
   const cv_bridge::CvImagePtr image_ptr = cv_bridge::toCvCopy(msg);
 
-  //Converts image from 8-bit unsigned to 32-bit floating-point values
-  image_ptr->image.convertTo(image_ptr->image, CV_32F, UCHAR_TO_FLOAT_SCALE);
+  int count = countClipPoints(image_ptr);
 
   //Computes XYZ coordinates of each point and stores it in the flatData variable
   genPointCloud(image_ptr);
-  removeClipPoints();
+  removeClipPoints(count);
 
   //Converts from 32-bit floating-point to 8-bit unsigned integer
   uint8_t* bytes = reinterpret_cast<uint8_t*>(&(data[0]));
@@ -103,10 +102,8 @@ void GenPointCloudNode::imageSubCallback(const sensor_msgs::msg::Image::SharedPt
   pointCloudMsg.row_step = pointCloudData.size();
 
   auto time_end = std::chrono::steady_clock::now();
-
   RCLCPP_INFO(this->get_logger(), "Time Performance: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() / 1000.0f));
 
-  RCLCPP_INFO(this->get_logger(), "Publishing pointcloud");
   publisher->publish(pointCloudMsg);
 }
 
@@ -154,40 +151,66 @@ void GenPointCloudNode::genPointCloud(const cv_bridge::CvImagePtr image_ptr) {
   const float TAN_HALF_H_FOV = tan(hFov / 2.0f);
   const float TAN_HALF_V_FOV = tan(vFov / 2.0f);
 
+  const float DEPTH_RANGE = farPlane - nearPlane;
+  const float MAX_NORMAL_DEPTH = 1.0f;
+  const float FLOATING_POINT_THRESHOLD = 0.001f;
+
+  float scaled_depth;
+  float current_z_transform;
+  int current_loop_offset;
+  int current_index;
+  const int SCALE = 255;
+
   for(unsigned int i = 0; i < imageHeight; i++) {
 
-    const float Z_TRANSFORM = v[i] * TAN_HALF_V_FOV;
-    const float LOOP_OFFSET = i * imageWidth;
+    current_z_transform = v[i] * TAN_HALF_V_FOV;
+    current_loop_offset = i * imageWidth;
 
     for(unsigned int j = 0; j < imageWidth; j++) {
 
-      //Scales depth image from 0.0 - 1.0 to nearPlane - farPlane
-      image_ptr->image.at<float>(i, j) = nearPlane / (image_ptr->image.at<float>(i, j) * nearPlane / farPlane - image_ptr->image.at<float>(i, j) + 1);
-    
       //Skips calculations for values at the clipping planes
-      if(abs(image_ptr->image.at<float>(i, j) - nearPlane) < 0.001 || abs(image_ptr->image.at<float>(i, j) - farPlane) < 0.001) {
+      if(image_ptr->image.at<uchar>(i, j) == 255 || image_ptr->image.at<uchar>(i, j) == 0) {
         continue;
       }
 
-      data[LOOP_OFFSET + j].y = image_ptr->image.at<float>(i, j) * u[j] * TAN_HALF_H_FOV;
-      data[LOOP_OFFSET + j].z = image_ptr->image.at<float>(i, j) * Z_TRANSFORM;
-      data[LOOP_OFFSET + j].x = image_ptr->image.at<float>(i, j);
+      current_index = current_loop_offset + j;
 
-      // convertToWorldFramePoint(LOOP_OFFSET + j);
+      //Scales depth image from 0 - 255 to nearPlane - farPlane
+      scaled_depth = farPlane / (farPlane - DEPTH_RANGE / SCALE * image_ptr->image.at<uchar>(i, j));
+
+      data[current_index].y = scaled_depth * u[j] * TAN_HALF_H_FOV;
+      data[current_index].z = scaled_depth * current_z_transform;
+      data[current_index].x = scaled_depth;
+
+      // convertToWorldFramePoint(current_index);
     }
   }
 }
 
-void GenPointCloudNode::removeClipPoints() {
-  std::vector<glm::vec4> filteredPoints;
+int GenPointCloudNode::countClipPoints(const cv_bridge::CvImagePtr imagePtr) {
+  int count = 0;
+  for(unsigned int i = 0; i < imageHeight; i++) {
+    for(unsigned int j = 0; j < imageWidth; j++) {
+      if(imagePtr->image.at<uchar>(i, j) == 255 || imagePtr->image.at<uchar>(i, j) == 0) {
+        count++;
+      }
+    }
+  }
+
+  return count;
+}
+
+void GenPointCloudNode::removeClipPoints(int count) {
+  std::vector<glm::vec4> filteredPoints(data.size() - count);
   glm::vec4 nullPoint(0.0f, 0.0f, 0.0f, 0.0f);
 
+  int next = 0;
   for(unsigned int i = 0; i < data.size(); i++) {
     if(data[i] == nullPoint) {
       continue;
     }
     
-    filteredPoints.push_back(data[i]);
+    filteredPoints[next++] = data[i];
   }
 
   data = filteredPoints;
