@@ -103,7 +103,7 @@ void GenPointCloudNode::imageSubCallback(const sensor_msgs::msg::Image::SharedPt
   pointCloudMsg.row_step = pointCloudData.size();
 
   auto time_end = std::chrono::steady_clock::now();
-  RCLCPP_INFO(this->get_logger(), "Time Performance: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() / 1000.0f));
+  // RCLCPP_INFO(this->get_logger(), "Time Performance: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() / 1000.0f));
 
   publisher->publish(pointCloudMsg);
 }
